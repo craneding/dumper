@@ -1,8 +1,14 @@
 package com.dinghz.dumper.http;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http.HttpContent;
+import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpUtil;
+import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,15 +21,8 @@ import org.slf4j.LoggerFactory;
  * @company 丁小样同学工作室
  * @email crane.ding@163.com
  */
-public class HttpServerHandler extends ChannelInboundHandlerAdapter {
+public class HttpServerHandler extends SimpleChannelInboundHandler {
     private static final Logger logger = LoggerFactory.getLogger(HttpServerHandler.class);
-
-    @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        ChannelFuture clientChannelFuture = HttpClient.instance().connect();
-
-        ctx.channel().attr(AttributeKey.valueOf("clientChannelFuture")).set(clientChannelFuture);
-    }
 
     @Override
     public void channelReadComplete(ChannelHandlerContext ctx) {
@@ -31,12 +30,24 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        ChannelFuture clientChannelFuture = ctx.channel()
-                .attr(AttributeKey.<ChannelFuture>valueOf("clientChannelFuture"))
-                .get();
+    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+        AttributeKey<ByteBuf> attributeKey = AttributeKey.valueOf("contentBuf");
 
-        HttpClient.instance().send(clientChannelFuture, ctx, msg);
+        if (msg instanceof HttpRequest) {
+            int contentLength = HttpUtil.getContentLength((HttpRequest) msg, 0);
+            ctx.channel().attr(AttributeKey.valueOf("request")).set(msg);
+            ctx.channel().attr(attributeKey).set(Unpooled.buffer(contentLength));
+        } else if (msg instanceof HttpContent) {
+            HttpRequest request = (HttpRequest) ctx.channel().attr(AttributeKey.valueOf("request")).get();
+            HttpContent content = (HttpContent) msg;
+            ByteBuf contentBuf = ctx.channel().attr(attributeKey).get();
+
+            content.content().readBytes(contentBuf, content.content().readableBytes());
+
+            if (msg instanceof LastHttpContent) {
+                HttpClient.instance().send(ctx, request, ctx.channel().attr(attributeKey).get());
+            }
+        }
     }
 
     @Override

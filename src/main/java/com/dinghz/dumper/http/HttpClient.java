@@ -2,22 +2,29 @@ package com.dinghz.dumper.http;
 
 import com.dinghz.dumper.core.Config;
 import com.dinghz.dumper.core.Dumper;
+import com.dinghz.dumper.http.xml.Http;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.DefaultFullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.AttributeKey;
-import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.xml.bind.JAXB;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -67,39 +74,42 @@ public class HttpClient implements Dumper {
         return bootstrap.connect(Config.REMOTE_HOST, Config.REMOTE_PORT).sync();
     }
 
-    public void send(ChannelFuture clientChannelFuture, ChannelHandlerContext ctx, Object msg) {
+    public void send(ChannelHandlerContext ctx, HttpRequest httpRequest, ByteBuf contentBuf) {
         executorService.execute(() -> {
+            ChannelFuture clientChannelFuture = null;
             try {
-                Object obj = null;
-                if (msg instanceof HttpRequest) {
-                    HttpRequest httpRequest = (HttpRequest) msg;
+                Http httpReq = null;
 
-                    obj = new DefaultHttpRequest(httpRequest.protocolVersion(), httpRequest.method(), httpRequest.uri(), httpRequest.headers().copy());
-                } else if (msg instanceof LastHttpContent) {
-                    LastHttpContent httpContent = (LastHttpContent) msg;
+                if (Config.LOG) {
+                    httpReq = HttpCodecer.encode(httpRequest, contentBuf);
 
-                    obj = httpContent.copy();
-                } else if (msg instanceof HttpContent) {
-                    HttpContent httpContent = (HttpContent) msg;
-
-                    obj = httpContent.copy();
+                    JAXB.marshal(httpReq, new File(System.getProperty("log.dir"), httpReq.getId() + "-req.xml"));
                 }
 
-                if (obj == null) {
-                    return;
+                clientChannelFuture = HttpClient.instance().connect();
+
+                ctx.channel().attr(AttributeKey.valueOf("clientChannelFuture")).set(clientChannelFuture);
+                DefaultFullHttpRequest request = new DefaultFullHttpRequest(httpRequest.protocolVersion(), httpRequest.method(),
+                        httpRequest.uri(), contentBuf);
+
+                // 构建http请求
+                HttpHeaders headers = httpRequest.headers();
+                for (Map.Entry<String, String> entry : headers.entries()) {
+                    request.headers().set(entry.getKey(), entry.getValue());
                 }
 
                 clientChannelFuture.channel().attr(AttributeKey.valueOf("serverCtx")).set(ctx);
-                clientChannelFuture.channel().write(msg);
-                clientChannelFuture.channel().flush();
-
-                if (msg instanceof LastHttpContent) {
-                    clientChannelFuture.channel().closeFuture().sync();
+                if (Config.LOG) {
+                    clientChannelFuture.channel().attr(AttributeKey.valueOf("httpReq")).set(httpReq);
+                    clientChannelFuture.channel().attr(AttributeKey.valueOf("os")).set(new ByteArrayOutputStream());
                 }
+                clientChannelFuture.channel().writeAndFlush(request);
             } catch (Exception e) {
                 logger.error(e.getMessage(), e);
-            } finally {
-                ReferenceCountUtil.release(msg);
+
+                if (clientChannelFuture != null) {
+                    clientChannelFuture.channel().close();
+                }
             }
         });
     }
