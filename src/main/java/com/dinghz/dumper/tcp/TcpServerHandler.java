@@ -19,6 +19,14 @@ public class TcpServerHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(TcpServerHandler.class);
 
     @Override
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        ChannelFuture clientChannelFuture = TcpClient.instance().connect();
+        clientChannelFuture.channel().attr(AttributeKey.valueOf("serverCtx")).set(ctx);
+
+        ctx.channel().attr(AttributeKey.valueOf("clientChannelFuture")).set(clientChannelFuture);
+    }
+
+    @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         ChannelFuture clientChannelFuture = ctx.channel()
                 .attr(AttributeKey.<ChannelFuture>valueOf("clientChannelFuture"))
