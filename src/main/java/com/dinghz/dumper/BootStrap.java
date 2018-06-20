@@ -64,7 +64,7 @@ public class BootStrap {
     }
 
     private static void help() {
-        String help = "usage: java -Dlog.dir=./logs -Dpro.name=8080 -Denable.log=false -Denable.ssl=false -Dprotocol.type=tcp -jar dumper.jar <remote.ip> <remote.port> <local.port>";
+        String help = "usage: java -Dlog.dir=./logs -Dpro.name=8080 -Denable.log=false -Denable.ssl=false -Dprotocol.type=tcp -jar dumper-jar-with-dependencies.jar <remote.ip> <remote.port> <local.port>";
 
         if (logger != null) {
             logger.error(help);
